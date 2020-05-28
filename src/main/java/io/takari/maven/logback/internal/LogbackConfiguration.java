@@ -7,6 +7,8 @@
  */
 package io.takari.maven.logback.internal;
 
+import java.io.File;
+import java.net.MalformedURLException;
 import java.net.URL;
 
 import javax.inject.Named;
@@ -34,15 +36,20 @@ public class LogbackConfiguration extends AbstractMavenLifecycleParticipant {
    * location.
    */
   public static final String PROP_LOGGING = "maven.logging";
+  /**
+   * Logback configuration file directory, relative to multiModuleProjectDirectory from maven.
+   */
+  private static final String PROP_LOG_CONFIG_LOCATION = "maven.logging.config.location";
 
   @Override
   public void afterSessionStart(MavenSession session) throws MavenExecutionException {
     // this is the earliest callback able to tell if the build is running in batch mode
     // TODO extend Maven Slf4jConfiguration API to support this usecase
 
-    final MavenExecutionRequest request = session.getRequest();
-    final String classifier = getProperty(request, PROP_LOGGING);
-    final int loglevel = request.getLoggingLevel();
+    MavenExecutionRequest request = session.getRequest();
+    String classifier = getProperty(request, PROP_LOGGING);
+    String configLocation = getProperty(request, PROP_LOG_CONFIG_LOCATION);
+    int loglevel = request.getLoggingLevel();
 
     if (classifier != null || loglevel != MavenExecutionRequest.LOGGING_LEVEL_INFO) {
       LoggerContext lc = (LoggerContext) LoggerFactory.getILoggerFactory();
@@ -53,7 +60,18 @@ public class LogbackConfiguration extends AbstractMavenLifecycleParticipant {
         url = ci.findURLOfDefaultConfigurationFile(true);
       } else {
         String resourceName = "logback-" + classifier + ".xml";
-        url = getClass().getClassLoader().getResource(resourceName.toString());
+        if (configLocation != null) {
+          File multiModuleProjectDirectory = request.getMultiModuleProjectDirectory();
+          File resolvedConfigLocation = new File(multiModuleProjectDirectory, configLocation);
+          File config = new File(resolvedConfigLocation, resourceName);
+          try {
+            url = config.toURI().toURL();
+          } catch (MalformedURLException e) {
+            throw new MavenExecutionException("error creating url", e);
+          }
+        } else {
+          url = getClass().getClassLoader().getResource(resourceName);
+        }
         if (url == null) {
           String msg =
               String.format("Invalid -D%s=%s property value, %s configuration file is not found",
